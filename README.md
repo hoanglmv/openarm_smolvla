@@ -7,11 +7,7 @@ episodes of the **OpenArm V1** bimanual arm, and serve it to the robot.
 - **Output:** the next **50 joint states** (1 s at 50 Hz) for all 16 joints, as absolute targets.
 - **One command** goes from the Hugging Face dataset to a trained model.
 
-```
-HF dataset (HDF5) ─► LeRobot dataset ─► norm stats ─► SmolVLA training ─► checkpoint ─► release
-                                                                                           │ serve (GPU)
-robot ◄── [50, 16] joint targets ◄── websocket ◄── SmolVLAPolicy client ◄──────────────────┘
-```
+![OpenArm SmolVLA pipeline](docs/images/pipeline.png)
 
 ## Contents
 
