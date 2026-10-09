@@ -1,7 +1,9 @@
 """Fake episodes in the exact layout openarm_mc's recorder writes."""
 
+import atexit
 import json
 import os
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -12,6 +14,7 @@ import pytest
 # LeRobot reads HF_LEROBOT_HOME once, at import: point it somewhere disposable
 # before any test imports it.
 os.environ["HF_LEROBOT_HOME"] = tempfile.mkdtemp(prefix="openarm_smolvla_lerobot_")
+atexit.register(shutil.rmtree, os.environ["HF_LEROBOT_HOME"], ignore_errors=True)
 
 from openarm_smolvla import constants as C  # noqa: E402
 

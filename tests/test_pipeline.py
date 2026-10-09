@@ -170,6 +170,23 @@ def test_convert_and_read_back(tmp_path, episode_factory, data):
         np.testing.assert_array_equal((depth * 255).round().astype(np.uint8).transpose(1, 2, 0), depth_to_image(depth0))
 
 
+def test_convert_reuses_a_current_dataset_only(tmp_path, episode_factory):
+    from openarm_smolvla.convert import convert
+
+    first, overrides = _convert(tmp_path, episode_factory, extra=["data.video=false"])
+    again = compose_cfg("convert", [*overrides, "data.video=false", "reuse_current=true"])
+    assert convert(again).get("reused")
+    with pytest.raises(FileExistsError):  # neither flag: refuse
+        convert(compose_cfg("convert", [*overrides, "data.video=false"]))
+    episode_factory("2026-10-08/episode_d", n=60, seed=2)  # a new episode arrives
+    report = convert(again)
+    assert not report.get("reused") and len(report["episodes"]) == 3
+    (tmp_path / "episodes.yaml").write_text("defaults: {task: another task}\n")  # a task is reworded
+    report = convert(again)
+    assert not report.get("reused") and report["episodes"][1]["task"] == "another task"
+    assert convert(again).get("reused")
+
+
 def test_convert_refuses_episodes_without_a_task(tmp_path, episode_factory):
     from openarm_smolvla.convert import convert
 

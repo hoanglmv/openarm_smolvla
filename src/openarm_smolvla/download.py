@@ -12,6 +12,7 @@ from __future__ import annotations
 import fnmatch
 import logging
 import os
+import shutil
 from pathlib import Path
 
 from omegaconf import DictConfig
@@ -19,6 +20,8 @@ from omegaconf import DictConfig
 from openarm_smolvla import paths
 
 log = logging.getLogger(__name__)
+# Left free after a download: the conversion and checkpoints need room too.
+MARGIN_BYTES = 5 * 10**9
 
 
 def destination(cfg: DictConfig) -> Path:
@@ -47,9 +50,16 @@ def download(cfg: DictConfig) -> dict:
         raise FileNotFoundError(f"{cfg.repo_id}@{cfg.revision}: no files match {list(cfg.patterns)}")
     out = destination(cfg)
     total = sum(sizes[f] for f in files)
-    log.info("%s@%s (%s): %d files, %.2f GB -> %s", cfg.repo_id, cfg.revision, info.sha[:8], len(files), total / 1e9, out)
+    missing = missing_files(out, files, sizes)
+    needed = sum(sizes[f] for f in missing)
+    log.info("%s@%s (%s): %d files, %.2f GB -> %s; %d missing, %.2f GB to fetch",
+             cfg.repo_id, cfg.revision, info.sha[:8], len(files), total / 1e9, out, len(missing), needed / 1e9)
 
     out.mkdir(parents=True, exist_ok=True)
+    free = shutil.disk_usage(out).free
+    if needed > free - MARGIN_BYTES:
+        raise OSError(f"{needed / 1e9:.1f} GB to download but {free / 1e9:.1f} GB free on {out}; "
+                      f"free some space, point paths.raw elsewhere, or pass limit=N")
     snapshot_download(
         repo_id=str(cfg.repo_id),
         repo_type="dataset",
@@ -58,7 +68,13 @@ def download(cfg: DictConfig) -> dict:
         local_dir=str(out),
         max_workers=int(cfg.max_workers),
     )
-    return {"repo_id": str(cfg.repo_id), "sha": info.sha, "dir": str(out), "files": files, "bytes": total}
+    return {"repo_id": str(cfg.repo_id), "sha": info.sha, "dir": str(out), "files": files, "bytes": total,
+            "fetched": missing}
+
+
+def missing_files(directory: Path, files: list[str], sizes: dict[str, int]) -> list[str]:
+    """The files not on disk yet, or of another size than the repo's."""
+    return [f for f in files if not (directory / f).is_file() or (directory / f).stat().st_size != sizes[f]]
 
 
 def check(directory: Path, files: list[str], min_frames: int = 1) -> dict[str, list[str]]:

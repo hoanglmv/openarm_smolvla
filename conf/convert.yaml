@@ -6,6 +6,7 @@ defaults:
   - _self_
 
 overwrite: false                # replace an existing dataset with the same repo_id
+reuse_current: false            # keep an existing dataset if it holds exactly these episodes, else convert again
 dry_run: false                  # report what would be converted, write nothing
 image_writer_threads: 4
 image_writer_processes: 0

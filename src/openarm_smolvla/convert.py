@@ -23,6 +23,7 @@ import shutil
 from pathlib import Path
 
 from omegaconf import DictConfig
+from omegaconf import OmegaConf
 
 from openarm_smolvla import constants as C
 from openarm_smolvla import paths
@@ -116,6 +117,27 @@ def features(cfg: DictConfig, image_size: tuple[int, int]) -> dict:
     return out
 
 
+# The data settings that change what the converter writes.
+CONVERSION_KEYS = ("action_source", "max_nan_fraction", "min_frames", "fps", "video", "cameras")
+
+
+def signature(cfg: DictConfig, chosen: list[Planned]) -> dict:
+    """What a converted dataset holds: settings, frame size, episodes and their tasks."""
+    return json.loads(json.dumps({
+        "data": {key: OmegaConf.to_container(cfg.data, resolve=True)[key] for key in CONVERSION_KEYS},
+        "image_size": list(chosen[0].image_size),
+        "episodes": [[p.id, p.task] for p in chosen],
+    }))
+
+
+def current_report(root: Path) -> dict | None:
+    """The report of a finished conversion at root (written last), or None."""
+    try:
+        return json.loads((root / REPORT).read_text())
+    except (OSError, ValueError):
+        return None
+
+
 def convert(cfg: DictConfig) -> dict:
     """Convert per cfg (conf/convert.yaml); -> the report written beside the dataset."""
     planned = plan(cfg)
@@ -142,9 +164,15 @@ def convert(cfg: DictConfig) -> dict:
 
     image_size = chosen[0].image_size
     root = HF_LEROBOT_HOME / str(cfg.data.repo_id)
+    wanted = signature(cfg, chosen)
     if root.exists():
-        if not cfg.overwrite:
+        report = current_report(root)
+        if cfg.reuse_current and report and report.get("signature") == wanted:
+            log.info("%s already holds exactly these %d episodes; kept", root, len(chosen))
+            return report | {"reused": True}
+        if not (cfg.overwrite or cfg.reuse_current):
             raise FileExistsError(f"{root} exists; pass overwrite=true to replace it")
+        log.info("%s holds other episodes or settings; converting again", root)
         shutil.rmtree(root)
 
     dataset = LeRobotDataset.create(
@@ -174,9 +202,8 @@ def convert(cfg: DictConfig) -> dict:
                         frame[C.LEROBOT_IMAGE_PREFIX + camera] = parse_image(episode.image(camera, index))
                     dataset.add_frame(frame)
             dataset.save_episode()
-            converted.append(
-                {"id": item.id, "frames": len(labels.indices), "action_source": labels.source, "notes": labels.notes}
-            )
+            converted.append({"id": item.id, "task": item.task, "frames": len(labels.indices),
+                              "action_source": labels.source, "notes": labels.notes})
             log.info("%s: %d frames, actions from %s %s", item.id, len(labels.indices), labels.source, labels.notes or "")
     finally:
         # Without it the parquet files lack their footers and the dataset cannot be read.
@@ -192,6 +219,7 @@ def convert(cfg: DictConfig) -> dict:
         "episodes": converted,
         "skipped": [{"id": p.id, "reason": p.skip} for p in planned if p.skip],
         "frames": sum(e["frames"] for e in converted),
+        "signature": wanted,
     }
     (root / REPORT).write_text(json.dumps(report, indent=2, ensure_ascii=False))
     return report

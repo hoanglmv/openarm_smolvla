@@ -70,6 +70,36 @@ resolved config (`pretrained_model/openarm_config.yaml`) and its processors
 (prompt tokenizer, norm stats, delta steps). Serving and evaluation rebuild
 the model from those, so they need only the checkpoint path.
 
+## One command, on the GPU machine
+
+```bash
+git clone <this repo> && cd openarm_smolvla
+scripts/run_pipeline.sh exp_name=v1        # creates .env on the first run: paste WANDB_API_KEY, run again
+```
+
+[scripts/run_pipeline.sh](scripts/run_pipeline.sh) installs uv when it is
+missing (into `~/.local/bin`, no sudo; uv then brings Python 3.12), runs
+`uv sync`, and stops if torch cannot use the GPU: the locked torch 2.11 is
+built for CUDA 13.0, which needs NVIDIA driver **580 or newer**
+(`nvidia-smi` shows the driver). Then it runs
+[scripts/train_pipeline.py](scripts/train_pipeline.py):
+
+1. wandb has a key (before hours of downloading, not after)
+2. downloads the episodes of `Tuyen062004/data_openarm_8_10` (30 GB, 85
+   episodes) not under `data/raw/` yet, after checking the disk has room
+3. converts them, unless `data/lerobot/` already holds exactly these
+   episodes, tasks and settings; a stale or partial dataset is replaced
+4. recomputes the norm stats (seconds)
+5. trains
+
+Each step does only what is missing, so the same command picks up after an
+interruption; add `resume=true` to continue the training run itself. Every
+override reaches every step: `batch_size=32`, `finetune=full`,
+`data.delta_actions=true`, `download.limit=10 num_train_steps=2000` for a
+short first try, `download.enable=false` to use only what is in `data/raw/`.
+
+The steps one at a time:
+
 ## Workflow
 
 **1. Bring the episodes over**, from Hugging Face or from the robot PC:

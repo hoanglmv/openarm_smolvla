@@ -36,6 +36,8 @@ packages = ["src/openarm_smolvla"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# The tests save models of ~1 GB; keep their directories only when they fail.
+tmp_path_retention_policy = "failed"
 
 [tool.ruff]
 line-length = 120
