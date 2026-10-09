@@ -10,6 +10,9 @@
 # Secrets: keys go in .env (template: .env.example).
 .env
 
+# Personal notes.
+GUIDE.md
+
 # Python
 __pycache__/
 *.py[cod]

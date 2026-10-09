@@ -92,6 +92,12 @@ def plan(cfg: DictConfig) -> list[Planned]:
         if item.skip is None and item.image_size != size:
             item.skip = f"frames are {item.image_size[1]}x{item.image_size[0]}, the dataset's {size[1]}x{size[0]}"
 
+    # A short run: the first N usable episodes only (by id, oldest first).
+    limit = cfg.data.get("max_episodes")
+    if limit:
+        for item in [p for p in planned if p.skip is None][int(limit):]:
+            item.skip = f"beyond data.max_episodes ({int(limit)})"
+
     # As act_pipeline's val_split: a share of the trainable episodes held out.
     fraction = float(cfg.data.get("val_fraction") or 0.0)
     held = held_out([p.id for p in planned if p.skip is None], fraction, int(cfg.data.get("split_seed") or 0))

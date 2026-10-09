@@ -29,4 +29,5 @@ default_prompt: null            # null: the dataset's task, when it has only one
 # act_pipeline's val_split: this share of the episodes, picked by a hash.
 val_fraction: 0.0
 split_seed: 0
+max_episodes: null              # only the first N episodes under paths.raw, for a short run
 tasks: null                     # filled in at training: the dataset's tasks, kept with every checkpoint

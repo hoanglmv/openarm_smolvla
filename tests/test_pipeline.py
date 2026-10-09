@@ -175,6 +175,12 @@ def test_convert_and_read_back(tmp_path, episode_factory, data):
         np.testing.assert_array_equal((depth * 255).round().astype(np.uint8).transpose(1, 2, 0), depth_to_image(depth0))
 
 
+def test_max_episodes_limits_the_conversion(tmp_path, episode_factory):
+    report, _ = _convert(tmp_path, episode_factory, extra=["data.video=false", "data.max_episodes=1"])
+    assert [e["id"] for e in report["episodes"]] == ["2026-10-08/episode_a"]
+    assert {"id": "2026-10-08/episode_b", "reason": "beyond data.max_episodes (1)"} in report["skipped"]
+
+
 def test_convert_reuses_a_current_dataset_only(tmp_path, episode_factory):
     from openarm_smolvla.convert import convert
 

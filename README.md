@@ -61,8 +61,16 @@ teleop commands as labels, delta actions) are in [docs/DESIGN.md](docs/DESIGN.md
 ```bash
 git clone https://github.com/hoanglmv/openarm_smolvla.git
 cd openarm_smolvla
-scripts/run_pipeline.sh exp_name=v1
+scripts/smoke_train.sh                     # 15-30 min: every step on 3 episodes, on the GPU
+scripts/run_pipeline.sh exp_name=v1        # the real training
 ```
+
+[scripts/smoke_train.sh](scripts/smoke_train.sh) runs the whole chain small
+before the long run: setup, download, conversion, loading the base model,
+30 training steps at the real batch size (an out-of-memory error shows
+here), checkpoints, resume, offline evaluation, export, and a real frame
+served to the robot's client. Its outputs are named `smoke` and do not mix
+with real runs; the episodes it downloads are reused.
 
 The first run creates `.env` and stops at the Weights & Biases check. Put
 your keys in it and run the same command again:
@@ -149,7 +157,8 @@ Common options:
 | `data.delta_actions` | false | arm joints relative to the current state; grippers stay absolute |
 | `data.val_fraction` | 0.15 | share of episodes held out |
 | `data.depth_init` | zero | the depth channel's initial weights: `zero`, or `mean` of the RGB weights |
-| `download.limit` | all | only the first N episodes, for a short first try |
+| `download.limit` | all | download only the first N episodes |
+| `data.max_episodes` | all | train on only the first N episodes under `data/raw/` |
 | `download.enable` | true | false: use only what is in `data/raw/` |
 | `wandb.enable` / `wandb.mode` | true / online | `offline` logs locally (`uv run wandb sync` later) |
 | `wandb.upload_checkpoints` | false | also upload every checkpoint to wandb |
@@ -157,7 +166,7 @@ Common options:
 Examples:
 
 ```bash
-scripts/run_pipeline.sh exp_name=try download.limit=10 num_train_steps=2000   # a short first run
+scripts/run_pipeline.sh exp_name=try download.limit=10 data.max_episodes=10 num_train_steps=2000   # a short run
 scripts/run_pipeline.sh exp_name=v1 batch_size=32                              # less GPU memory
 scripts/run_pipeline.sh exp_name=v1 resume=true                                # continue v1
 scripts/run_pipeline.sh exp_name=full_v1 finetune=full                         # train every weight
@@ -286,6 +295,7 @@ point. The server answers `GET /healthz` for monitoring.
 
 ```bash
 uv run pytest                          # CPU, ~15 min; builds and serves small random models
+scripts/smoke_train.sh                 # GPU, every step with the real model on 3 episodes
 uv run scripts/train_pipeline.py experiment=smoke download.limit=2   # the whole pipeline on a CPU, 10 steps
 ```
 
