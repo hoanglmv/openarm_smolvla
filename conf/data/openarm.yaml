@@ -1,0 +1,22 @@
+# One OpenArm dataset: how the converter builds it and how training reads it.
+# convert.py and train.py compose the same file, so they cannot disagree.
+name: openarm
+manifest: manifests/episodes.yaml   # task / exclude / split per episode
+# Labels (see openarm_smolvla/episode.py): commands | next_qpos | qpos
+action_source: commands
+max_nan_fraction: 0.02          # more missing command rows than this: next_qpos
+min_frames: 50                  # shorter episodes are skipped
+fps: 50                         # must divide 50; 25 drops the camera's repeated frames
+repo_id: openarm/${data.name}_${data.action_source}_${data.fps}hz
+# [height, width] every frame must have; null: the episodes' own (the most
+# common one). openarm_mc recorded 640x480 before it moved to 424x240.
+image_size: null
+video: true                     # mp4 frames; false stores PNGs
+# The recorder's cameras SmolVLA sees, in this order.
+cameras: [chest]
+# Arm joints as deltas from the state, grippers absolute. SmolVLA was
+# pretrained on absolute targets, so LeRobot's recipe keeps them absolute.
+delta_actions: false
+image_transforms: false         # LeRobot's train-time augmentation (colour jitter, small shifts)
+default_prompt: null            # null: the dataset's task, when it has only one
+tasks: null                     # filled in at training: the dataset's tasks, kept with every checkpoint

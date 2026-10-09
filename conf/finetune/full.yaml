@@ -1,0 +1,7 @@
+# Every weight trained, SigLIP and SmolLM2 included. Several times the
+# optimizer memory of finetune=expert; try it once expert has a baseline.
+name: full
+load_base: true
+freeze_vision_encoder: false
+train_expert_only: false
+train_state_proj: true

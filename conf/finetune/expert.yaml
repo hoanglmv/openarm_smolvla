@@ -1,0 +1,9 @@
+# LeRobot's recipe for SmolVLA: the action expert and the state/action
+# projections train; SmolVLM2 (vision and language) stays frozen. The
+# lightest way to fine-tune, and the one smolvla_base was published for.
+# Lower batch_size if the GPU runs out of memory.
+name: expert
+load_base: true
+freeze_vision_encoder: true
+train_expert_only: true
+train_state_proj: true

@@ -1,0 +1,19 @@
+# @package _global_
+# The whole training pipeline in minutes on a CPU: a small random network,
+# ten steps.
+#   uv run scripts/train.py experiment=smoke
+defaults:
+  - override /finetune: dummy
+
+exp_name: smoke
+device: cpu
+batch_size: 2
+num_workers: 0
+num_train_steps: 10
+log_interval: 1
+save_interval: 5
+overwrite: true
+wandb:
+  enable: false
+lr:
+  warmup_steps: 2

@@ -1,0 +1,50 @@
+# Train (and compute norm stats for) SmolVLA on one dataset:
+#   uv run scripts/train.py finetune=expert exp_name=first
+defaults:
+  - paths: default
+  - model: smolvla
+  - finetune: expert
+  - data: openarm
+  - _self_
+  - optional experiment: null
+
+# checkpoints/<name>/<exp_name>/checkpoints/<step>/pretrained_model/
+name: ${model.name}_${finetune.name}
+exp_name: ${now:%Y%m%d_%H%M%S}
+
+device: auto                    # cuda when there is one, else cpu
+seed: 42
+batch_size: 64                  # LeRobot's SmolVLA recipe; lower it if memory runs out
+num_workers: 4
+num_train_steps: 20000
+log_interval: 100
+save_interval: 2000             # every checkpoint is kept (~3 GB each with the optimizer)
+overwrite: false                # wipe checkpoints/<name>/<exp_name> first
+resume: false                   # continue from its last checkpoint
+
+# Weights & Biases. The API key comes from .env (WANDB_API_KEY), or from
+# `wandb login`. A resumed run continues the same wandb run.
+wandb:
+  enable: true
+  project: openarm_smolvla
+  entity: null                  # null: WANDB_ENTITY from .env, else your account's default
+  mode: online                  # online | offline (upload later: wandb sync) | disabled
+  notes: null
+  upload_checkpoints: false     # true: every checkpoint (~1-2 GB) also goes to wandb as an artifact
+
+lr:                             # LeRobot's CosineDecayWithWarmupSchedulerConfig
+  warmup_steps: 1000
+  peak_lr: 1.0e-4               # SmolVLA's preset
+  decay_steps: ${num_train_steps}
+  decay_lr: 2.5e-6
+optimizer:                      # LeRobot's AdamWConfig
+  betas: [0.9, 0.95]
+  eps: 1.0e-8
+  weight_decay: 1.0e-10
+  grad_clip_norm: 10.0
+
+hydra:
+  job:
+    chdir: false
+  run:
+    dir: outputs/${hydra:job.name}/${now:%Y-%m-%d_%H-%M-%S}

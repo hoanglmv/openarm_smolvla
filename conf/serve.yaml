@@ -1,0 +1,15 @@
+# Serve a trained checkpoint over websocket for openarm_act's SmolVLAPolicy:
+#   uv run scripts/serve.py checkpoint=checkpoints/smolvla_expert/first
+# The data pipeline comes from openarm_config.yaml inside the checkpoint,
+# the processors (stats, delta actions) from the checkpoint itself.
+checkpoint: ???                 # a release, a step, or a run directory (its newest step)
+port: 8000
+device: auto
+default_prompt: null            # when the client sends none; else the run's
+num_steps: null                 # flow-matching steps per chunk; null: the run's (10)
+
+hydra:
+  job:
+    chdir: false
+  run:
+    dir: outputs/${hydra:job.name}/${now:%Y-%m-%d_%H-%M-%S}

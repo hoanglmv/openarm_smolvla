@@ -1,0 +1,10 @@
+# A small random SmolVLA, no base weights: for checking the pipeline end to
+# end on a CPU (experiment=smoke). SmolVLM2's config and tokenizer still come
+# from the Hub; the vision encoder keeps its size, the language model is cut
+# to its first layers. Learns nothing useful.
+name: dummy
+load_base: false
+freeze_vision_encoder: false
+train_expert_only: false
+train_state_proj: true
+num_vlm_layers: 2

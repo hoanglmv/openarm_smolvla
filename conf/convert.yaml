@@ -1,0 +1,17 @@
+# HDF5 episodes from openarm_mc -> a LeRobot dataset SmolVLA trains on:
+#   uv run scripts/convert_dataset.py data.fps=25
+defaults:
+  - paths: default
+  - data: openarm
+  - _self_
+
+overwrite: false                # replace an existing dataset with the same repo_id
+dry_run: false                  # report what would be converted, write nothing
+image_writer_threads: 4
+image_writer_processes: 0
+
+hydra:
+  job:
+    chdir: false
+  run:
+    dir: outputs/${hydra:job.name}/${now:%Y-%m-%d_%H-%M-%S}

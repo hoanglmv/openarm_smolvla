@@ -1,0 +1,18 @@
+# Offline evaluation on the held-out episodes (split: val in the manifest):
+#   uv run scripts/offline_eval.py checkpoint=checkpoints/smolvla_expert/first
+checkpoint: ???
+split: val
+every: 10                       # predict a chunk every this many frames
+max_episodes: null
+device: auto
+num_steps: null                 # flow-matching steps per chunk; null: the run's
+seed: 0                         # fixes the sampling noise, so checkpoints compare fairly; null: random
+paths:
+  raw: null                     # null: the raw directory of the run's config
+output: null                    # null: offline_eval_<split>.json beside the weights
+
+hydra:
+  job:
+    chdir: false
+  run:
+    dir: outputs/${hydra:job.name}/${now:%Y-%m-%d_%H-%M-%S}

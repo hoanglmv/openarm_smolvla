@@ -1,0 +1,13 @@
+# SmolVLA: SmolVLM2-500M (SigLIP + the first 16 layers of SmolLM2) and a
+# flow-matching action expert, ~450M parameters.
+name: smolvla
+base: lerobot/smolvla_base
+base_revision: 5e8d12a6e2975b0e5e5fce7c8caf47c371d257b6   # null: the Hub's newest
+# 50 steps at 50 Hz is one second, as ACT. Must match data.fps / the chunk you want.
+chunk_size: 50
+n_action_steps: 50              # LeRobot's select_action queue; serving returns whole chunks
+num_steps: 10                   # flow-matching denoising steps per chunk
+resize_imgs_with_padding: [512, 512]   # letterboxed, as SmolVLM2 was trained
+empty_cameras: 0                # masked black images added after the real ones
+tokenizer_max_length: 48
+use_amp: false                  # true: mixed precision (fp16 on CUDA); LeRobot trains SmolVLA in fp32
