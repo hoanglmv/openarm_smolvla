@@ -2,7 +2,7 @@
 #   uv run scripts/convert_dataset.py data.fps=25
 defaults:
   - paths: default
-  - data: openarm
+  - data: openarm_rgbd
   - _self_
 
 overwrite: false                # replace an existing dataset with the same repo_id

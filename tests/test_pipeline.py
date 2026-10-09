@@ -6,6 +6,7 @@ import json
 import socket
 import threading
 import time
+import uuid
 
 import numpy as np
 import pytest
@@ -26,14 +27,15 @@ def compose_cfg(name="train", overrides=()):
 
 
 @pytest.mark.parametrize("finetune", ["expert", "full", "dummy"])
-@pytest.mark.parametrize("data", ["openarm", "openarm_rgbd"])
+@pytest.mark.parametrize("data", ["openarm_rgb", "openarm_rgb_depth", "openarm_rgbd"])
 def test_every_combination_composes(finetune, data):
     from openarm_smolvla.train_config import policy_overrides
 
     cfg = compose_cfg(overrides=[f"finetune={finetune}", f"data={data}", "exp_name=t", "device=cpu"])
     assert cfg.name == f"smolvla_{finetune}"
-    assert cfg.data.repo_id == f"openarm/{data}_commands_50hz"
-    assert list(cfg.data.cameras) == (["chest"] if data == "openarm" else ["chest", "chest_depth"])
+    labels = "qpos" if data == "openarm_rgbd" else "commands"
+    assert cfg.data.repo_id == f"openarm/{data}_{labels}_50hz"
+    assert list(cfg.data.cameras) == (["chest"] if data == "openarm_rgb" else ["chest", "chest_depth"])
     overrides = policy_overrides(cfg)
     assert overrides["chunk_size"] == 50 and overrides["device"] == "cpu"
     assert overrides["train_expert_only"] == (finetune == "expert")
@@ -53,7 +55,7 @@ def test_dummy_builds_a_train_config(tmp_path):
     assert train_cfg.policy.pretrained_path is None and train_cfg.policy.num_vlm_layers == 2
     assert train_cfg.steps == 10 and train_cfg.batch_size == 2
     assert train_cfg.scheduler.num_decay_steps == 10
-    assert train_cfg.dataset.repo_id == "openarm/openarm_commands_50hz"
+    assert train_cfg.dataset.repo_id == "openarm/openarm_rgbd_qpos_50hz"  # the default data
 
 
 def test_norm_stats_shared_across_finetuning():
@@ -120,7 +122,7 @@ def test_image_layouts_agree():
 # -------------------------------------------------------------- conversion
 
 
-def _convert(tmp_path, episode_factory, data="openarm", extra=()):
+def _convert(tmp_path, episode_factory, data="openarm_rgb", extra=()):
     from openarm_smolvla.convert import convert
 
     episode_factory("2026-10-08/episode_a", n=80, task="pick the cup")
@@ -134,38 +136,41 @@ def _convert(tmp_path, episode_factory, data="openarm", extra=()):
         f"paths.checkpoints={tmp_path / 'checkpoints'}",
         f"data={data}",
         f"data.manifest={manifest}",
-        f"data.name=test_{tmp_path.name}",
+        f"data.name=test_{uuid.uuid4().hex[:12]}",  # one dataset per test, in the session's HF_LEROBOT_HOME
         *extra,
     ]
     return convert(compose_cfg("convert", overrides)), overrides
 
 
-@pytest.mark.parametrize("data", ["openarm", "openarm_rgbd"])
+@pytest.mark.parametrize("data", ["openarm_rgb", "openarm_rgb_depth", "openarm_rgbd"])
 def test_convert_and_read_back(tmp_path, episode_factory, data):
     from lerobot.datasets import LeRobotDataset
 
     from openarm_smolvla.episode import EpisodeReader
     from openarm_smolvla.images import depth_to_image
 
-    report, overrides = _convert(tmp_path, episode_factory, data, ["data.video=false"])
+    report, overrides = _convert(tmp_path, episode_factory, data, ["data.video=false", "data.val_fraction=0"])
     assert [e["id"] for e in report["episodes"]] == ["2026-10-08/episode_a", "2026-10-08/episode_b"]
     assert report["skipped"] == [{"id": "2026-10-09/episode_c", "reason": "split val"}]
-    assert report["frames"] == 80 + 59  # b: grippers from next_qpos lose the last row
+    cfg = compose_cfg(overrides=[*overrides, "data.val_fraction=0"])
+    source = str(cfg.data.action_source)  # openarm_rgbd: qpos, the others: commands
+    # commands: episode_b's grippers fall back to next_qpos and lose the last row
+    frames = 80 + (60 if source == "qpos" else 59)
+    assert report["frames"] == frames
 
-    cfg = compose_cfg(overrides=overrides)
     dataset = LeRobotDataset(str(cfg.data.repo_id), delta_timestamps={"action": [i / 50 for i in range(50)]})
-    assert len(dataset) == 139 and dataset.num_episodes == 2
+    assert len(dataset) == frames and dataset.num_episodes == 2
     sample = dataset[0]
     assert sample["task"] == "pick the cup"
     first = tmp_path / "raw/2026-10-08/episode_a.hdf5"
     with EpisodeReader(first) as ep:
-        labels = ep.labels("commands")
+        labels = ep.labels(source)
         rgb0, depth0 = ep.rgb(0), ep.depth(0)
     np.testing.assert_allclose(np.asarray(sample["observation.state"]), labels.state[0], atol=1e-6)
     np.testing.assert_allclose(np.asarray(sample["action"]), labels.actions[:50], atol=1e-6)
     image = (np.asarray(sample["observation.images.chest"]) * 255).round().astype(np.uint8).transpose(1, 2, 0)
     np.testing.assert_array_equal(image, rgb0)  # PNG frames are lossless
-    if data == "openarm_rgbd":
+    if data != "openarm_rgb":
         depth = np.asarray(sample["observation.images.chest_depth"])
         np.testing.assert_array_equal((depth * 255).round().astype(np.uint8).transpose(1, 2, 0), depth_to_image(depth0))
 
@@ -279,7 +284,7 @@ def test_delta_steps_round_trip():
 # ------------------------------------------------- a small model, end to end
 
 
-def _save_dummy_checkpoint(tmp_path, episode_factory, delta: bool):
+def _save_dummy_checkpoint(tmp_path, episode_factory, delta: bool, data: str = "openarm_rgb"):
     """A random 2-layer SmolVLA saved the way LeRobot's training saves one."""
     import torch
     from lerobot.datasets import LeRobotDatasetMetadata
@@ -295,7 +300,7 @@ def _save_dummy_checkpoint(tmp_path, episode_factory, delta: bool):
     from openarm_smolvla.train_config import dataset_tasks
     from openarm_smolvla.train_config import save_run_config
 
-    _, overrides = _convert(tmp_path, episode_factory, extra=["data.video=false"])
+    _, overrides = _convert(tmp_path, episode_factory, data, extra=["data.video=false"])
     cfg = compose_cfg(overrides=[*overrides, "experiment=smoke", f"data.delta_actions={str(delta).lower()}",
                                  "model.resize_imgs_with_padding=[128,128]", "model.num_steps=2"])
     stats = load_norm_stats(compute_norm_stats(cfg))
@@ -381,6 +386,107 @@ def test_export_then_serve_offline(tmp_path, episode_factory, vlm_files, monkeyp
     assert OmegaConf.load(release / paths.RUN_CONFIG).name == "smolvla_dummy"
 
 
+# --------------------------------------------------- ACT's RGB-D input
+
+
+def test_held_out_is_stable_and_sized():
+    from openarm_smolvla.convert import held_out
+
+    ids = [f"day/episode_{i:03d}" for i in range(85)]
+    held = held_out(ids, 0.15)
+    assert len(held) == 13 and held == held_out(list(reversed(ids)), 0.15)
+    assert len(held - held_out(ids + ["day/episode_new"], 0.15)) <= 1  # a new episode moves one at most
+    assert held != held_out(ids, 0.15, seed=1)
+    assert held_out(ids, 0.0) == set() and held_out(ids[:1], 0.5) == set()
+
+
+def test_act_config_holds_out_and_labels_like_act(tmp_path, episode_factory):
+    report, overrides = _convert(tmp_path, episode_factory, "openarm_rgbd",
+                                 ["data.video=false", "data.val_fraction=0.5"])
+    cfg = compose_cfg("convert", [*overrides, "data=openarm_rgbd"])
+    assert cfg.data.action_source == "qpos" and cfg.data.depth_as == "channel"
+    reasons = [s["reason"] for s in report["skipped"]]
+    assert "split val" in reasons and any(r.startswith("split val (val_fraction") for r in reasons)
+    assert len(report["episodes"]) == 1
+    assert report["episodes"][0]["action_source"] == "qpos"  # action[t] = qpos[t], as act_pipeline
+
+
+@pytest.mark.parametrize("depth_init", ["zero", "mean"])
+def test_rgbd_patch_embedding_widens_3_channel_weights(tmp_path, vlm_files, depth_init):
+    import torch
+    from lerobot.configs import FeatureType
+    from lerobot.configs import PolicyFeature
+    from lerobot.policies.smolvla.configuration_smolvla import SmolVLAConfig
+    from lerobot.policies.smolvla.modeling_smolvla import SmolVLAPolicy
+
+    from openarm_smolvla.configuration_smolvla_rgbd import SmolVLARGBDConfig
+    from openarm_smolvla.modeling_smolvla_rgbd import SmolVLARGBDPolicy
+
+    features = {
+        "input_features": {
+            "observation.state": PolicyFeature(type=FeatureType.STATE, shape=(16,)),
+            "observation.images.chest": PolicyFeature(type=FeatureType.VISUAL, shape=(3, 64, 64)),
+            "observation.images.chest_depth": PolicyFeature(type=FeatureType.VISUAL, shape=(3, 64, 64)),
+        },
+        "output_features": {"action": PolicyFeature(type=FeatureType.ACTION, shape=(16,))},
+    }
+    small = {"num_vlm_layers": 1, "load_vlm_weights": False, "device": "cpu", "train_expert_only": True,
+             "freeze_vision_encoder": True, "resize_imgs_with_padding": (64, 64)}
+    torch.manual_seed(0)
+    base = SmolVLAPolicy(SmolVLAConfig(**small, **features))  # 3 channels, as smolvla_base
+    base.save_pretrained(tmp_path / "base")
+    rgb_weight = base.model.vlm_with_expert.get_vlm_model().vision_model.embeddings.patch_embedding.weight
+
+    config = SmolVLARGBDConfig(**small, **features, depth_init=depth_init)
+    policy = SmolVLARGBDPolicy.from_pretrained(tmp_path / "base", config=config)
+    vision = policy.model.vlm_with_expert.get_vlm_model().vision_model
+    weight = vision.embeddings.patch_embedding.weight
+    assert weight.shape[1] == 4 and weight.requires_grad  # trainable, as ACT's conv1_adapter
+    assert not vision.encoder.layers[0].self_attn.q_proj.weight.requires_grad  # the rest frozen
+    torch.testing.assert_close(weight[:, :3], rgb_weight)
+    expected = rgb_weight.mean(1) if depth_init == "mean" else torch.zeros_like(rgb_weight[:, 0])
+    torch.testing.assert_close(weight[:, 3], expected)
+
+    # Depth goes in as the RGB image's 4th channel.
+    rgb, depth = torch.rand(2, 3, 64, 64), torch.rand(2, 3, 64, 64)
+    images, masks = policy.prepare_images({"observation.images.chest": rgb, "observation.images.chest_depth": depth})
+    assert len(images) == 1 and images[0].shape == (2, 4, 64, 64)
+    torch.testing.assert_close(images[0][:, 3], depth[:, 0] * 2 - 1)
+
+
+def test_rgbd_model_serves_like_act(tmp_path, episode_factory, vlm_files):
+    """The client's raw RGB + depth + qpos in, [50, 16] absolute joint states out."""
+    import torch
+
+    from openarm_smolvla.policy import OpenArmPolicy
+
+    out, cfg = _save_dummy_checkpoint(tmp_path, episode_factory, delta=False, data="openarm_rgbd")
+    assert json.loads((out / "config.json").read_text())["type"] == "smolvla_rgbd"
+    policy = OpenArmPolicy(out, device="cpu")
+    assert type(policy.policy).__name__ == "SmolVLARGBDPolicy"
+    assert policy.metadata["depth_as"] == "channel" and policy.metadata["cameras"] == ["chest", "chest_depth"]
+
+    rng = np.random.default_rng(0)
+    obs = {"images": {"chest": rng.integers(0, 256, (240, 424, 3), dtype=np.uint8),
+                      "chest_depth": rng.integers(0, 1500, (240, 424), dtype=np.uint16)},
+           "state": rng.normal(size=16).astype(np.float32), "prompt": "pick the cup"}
+    torch.manual_seed(0)
+    actions = policy.infer(obs)["actions"]
+    assert actions.shape == (50, 16) and np.all(np.isfinite(actions))
+
+    # Depth reaches the network once its weights are not zero.
+    with torch.no_grad():
+        policy.policy.model.vlm_with_expert.get_vlm_model().vision_model.embeddings.patch_embedding.weight[:, 3] += 1.0
+    flat = dict(obs, images=dict(obs["images"], chest_depth=np.full((240, 424), 300, np.uint16)))
+    torch.manual_seed(0)
+    a = policy.infer(obs)["actions"]
+    torch.manual_seed(0)
+    b = policy.infer(flat)["actions"]
+    assert not np.allclose(a, b)
+    with pytest.raises(KeyError, match="chest_depth"):
+        policy.infer(dict(obs, images={"chest": obs["images"]["chest"]}))
+
+
 # ------------------------------------------------------------------ client
 
 
@@ -424,7 +530,7 @@ def _connect(port, **kwargs):
     raise AssertionError("the server never came up")
 
 
-@pytest.mark.parametrize("data", ["openarm", "openarm_rgbd"])
+@pytest.mark.parametrize("data", ["openarm_rgb", "openarm_rgb_depth", "openarm_rgbd"])
 def test_client_against_a_server(data):
     from openarm_smolvla.train_config import policy_metadata
 
@@ -440,7 +546,7 @@ def test_client_against_a_server(data):
     actions = client.predict(rgb, depth, qpos)
     assert actions.shape == (50, 16)
     assert np.all(actions[:, 3] <= 2.443461 + 1e-6)  # clipped to V1
-    assert ("chest_depth" in policy.seen["images"]) == (data == "openarm_rgbd")
+    assert ("chest_depth" in policy.seen["images"]) == (data != "openarm_rgb")
     assert policy.seen["images"]["chest"].dtype == np.uint8 and policy.seen["prompt"] == "hand it over"
     assert client.server_ms is not None
     assert "SmolVLAPolicy" in client.describe()

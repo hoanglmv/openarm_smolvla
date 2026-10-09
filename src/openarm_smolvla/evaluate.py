@@ -18,14 +18,13 @@ from pathlib import Path
 
 import numpy as np
 from omegaconf import DictConfig
+from omegaconf import OmegaConf
 
 from openarm_smolvla import constants as C
 from openarm_smolvla import paths
+from openarm_smolvla.convert import plan
 from openarm_smolvla.convert import used_cameras
 from openarm_smolvla.episode import EpisodeReader
-from openarm_smolvla.episode import episode_id
-from openarm_smolvla.episode import find_episodes
-from openarm_smolvla.manifest import Manifest
 from openarm_smolvla.run import PRETRAINED_DIR
 
 log = logging.getLogger(__name__)
@@ -72,22 +71,19 @@ def evaluate(cfg: DictConfig) -> dict:
     policy = OpenArmPolicy(cfg.checkpoint, device=str(cfg.device), num_steps=cfg.num_steps)
     run_cfg, step_dir = policy.run_cfg, policy.directory
     raw = paths.resolve(cfg.paths.raw or run_cfg.paths.raw)
-    manifest_path = paths.resolve(run_cfg.data.manifest) if run_cfg.data.manifest else None
-    manifest = Manifest.load(manifest_path if manifest_path and manifest_path.exists() else None)
     cameras = used_cameras(run_cfg)
     horizon = int(run_cfg.model.chunk_size)
     every = max(1, int(cfg.every))
+    # The episodes the conversion left out as this split: the manifest's
+    # `split:`, and data.val_fraction's hold-out, chosen the same way.
+    plan_cfg = OmegaConf.merge(run_cfg, {"paths": {"raw": str(raw)}})
+    chosen = [p for p in plan(plan_cfg) if (p.skip or "").startswith(f"split {cfg.split}")]
 
     model, hold = ErrorTally(horizon), ErrorTally(horizon)
     per_episode = []
-    for path in find_episodes(raw):
-        name = episode_id(path, raw)
-        with EpisodeReader(path) as episode:
-            meta = manifest.resolve(name, episode.task)
-            if meta.split != cfg.split or meta.exclude:
-                continue
-            if episode.problems(int(run_cfg.data.min_frames), need_depth=C.CAMERA_DEPTH in cameras):
-                continue
+    for item in chosen:
+        name = item.id
+        with EpisodeReader(item.path) as episode:
             labels = episode.labels(
                 str(run_cfg.data.action_source), int(run_cfg.data.fps), float(run_cfg.data.max_nan_fraction)
             )
@@ -97,8 +93,8 @@ def evaluate(cfg: DictConfig) -> dict:
                     "images": {camera: episode.image(camera, labels.indices[start]) for camera in cameras},
                     "state": labels.state[start],
                 }
-                if meta.task:
-                    obs["prompt"] = meta.task
+                if item.task:
+                    obs["prompt"] = item.task
                 if cfg.seed is not None:  # the same flow-matching noise for every checkpoint
                     torch.manual_seed(int(cfg.seed) + start)
                 predicted = np.asarray(policy.infer(obs)["actions"], dtype=np.float64)[:horizon]

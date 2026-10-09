@@ -63,6 +63,8 @@ def openarm_training(cfg: DictConfig, stats: dict | None):
     """LeRobot's train() with this repo's stats, delta steps and run config."""
     from lerobot.scripts import lerobot_train
 
+    import openarm_smolvla.configuration_smolvla_rgbd  # noqa: F401  -- registers "smolvla_rgbd"
+
     from openarm_smolvla.processors import add_delta_steps
     from openarm_smolvla.processors import has_delta_steps
     from openarm_smolvla.processors import link_delta_steps
@@ -138,6 +140,8 @@ def train(cfg: DictConfig) -> Path:
     train_cfg = build_train_config(cfg, out)
     if resuming:
         from lerobot.configs import PreTrainedConfig
+
+        import openarm_smolvla.configuration_smolvla_rgbd  # noqa: F401  -- a smolvla_rgbd checkpoint
 
         checkpoint = last.resolve()
         train_cfg.resume = True

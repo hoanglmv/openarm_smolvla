@@ -45,8 +45,9 @@ class OpenArmPolicy:
     ):
         from lerobot.configs import PreTrainedConfig
         from lerobot.policies import make_pre_post_processors
-        from lerobot.policies.smolvla.modeling_smolvla import SmolVLAPolicy
+        from lerobot.policies.factory import get_policy_class
 
+        import openarm_smolvla.configuration_smolvla_rgbd  # noqa: F401  -- registers "smolvla_rgbd"
         from openarm_smolvla.processors import link_delta_steps  # also registers the steps for loading
 
         self.run_cfg, self.directory = load_run_config(checkpoint)
@@ -61,7 +62,8 @@ class OpenArmPolicy:
             config.vlm_model_name = str(vlm)
             preprocessor_overrides["tokenizer_processor"] = {"tokenizer_name": str(vlm)}
 
-        self.policy = SmolVLAPolicy.from_pretrained(self.directory, config=config)
+        # smolvla, or smolvla_rgbd (ACT's 4-channel RGB-D input): config.json says which.
+        self.policy = get_policy_class(config.type).from_pretrained(self.directory, config=config)
         self.policy.eval()
         self.preprocessor, self.postprocessor = make_pre_post_processors(
             config, pretrained_path=str(self.directory), preprocessor_overrides=preprocessor_overrides

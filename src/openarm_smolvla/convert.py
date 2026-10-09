@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import collections
 import dataclasses
+import hashlib
 import json
 import logging
 import shutil
@@ -90,7 +91,25 @@ def plan(cfg: DictConfig) -> list[Planned]:
     for item in planned:
         if item.skip is None and item.image_size != size:
             item.skip = f"frames are {item.image_size[1]}x{item.image_size[0]}, the dataset's {size[1]}x{size[0]}"
+
+    # As act_pipeline's val_split: a share of the trainable episodes held out.
+    fraction = float(cfg.data.get("val_fraction") or 0.0)
+    held = held_out([p.id for p in planned if p.skip is None], fraction, int(cfg.data.get("split_seed") or 0))
+    for item in planned:
+        if item.id in held:
+            item.skip = f"split val (val_fraction {fraction:g})"
     return planned
+
+
+def held_out(ids: list[str], fraction: float, seed: int = 0) -> set[str]:
+    """round(fraction * n) of the episode ids, at least one, chosen by a hash
+    of seed and id: the same ones every time, and an episode recorded later
+    does not reshuffle the others."""
+    if fraction <= 0 or len(ids) < 2:
+        return set()
+    count = min(len(ids) - 1, max(1, round(fraction * len(ids))))
+    ranked = sorted(ids, key=lambda i: hashlib.sha1(f"{seed}:{i}".encode()).hexdigest())
+    return set(ranked[:count])
 
 
 def dataset_image_size(cfg: DictConfig, planned: list[Planned]) -> tuple[int, int] | None:

@@ -55,23 +55,49 @@ def policy_overrides(cfg: DictConfig) -> dict:
     return overrides
 
 
+def rgbd_fields(cfg: DictConfig) -> dict | None:
+    """With data.depth_as=channel, ACT's input: depth as the RGB image's 4th
+    channel (configuration_smolvla_rgbd); None for SmolVLA's own input."""
+    depth_as = str(cfg.data.get("depth_as") or "image")
+    if depth_as == "image":
+        return None
+    if depth_as != "channel":
+        raise ValueError(f"data.depth_as must be image or channel, not {depth_as!r}")
+    cameras = [str(c) for c in cfg.data.cameras]
+    if cameras != [C.CAMERA_RGB, C.CAMERA_DEPTH]:
+        raise ValueError(f"data.depth_as=channel needs cameras [chest, chest_depth], got {cameras}")
+    return {
+        "rgb_key": C.LEROBOT_IMAGE_PREFIX + C.CAMERA_RGB,
+        "depth_key": C.LEROBOT_IMAGE_PREFIX + C.CAMERA_DEPTH,
+        "depth_init": str(cfg.data.get("depth_init") or "zero"),
+        "train_patch_embedding": bool(cfg.finetune.get("train_patch_embedding", True)),
+    }
+
+
 def build_policy_config(cfg: DictConfig):
-    """-> SmolVLAConfig: the base model's own config with this repo's overrides,
-    or a fresh one (finetune.load_base false)."""
+    """-> SmolVLAConfig (or SmolVLARGBDConfig with data.depth_as=channel): the
+    base model's own config with this repo's overrides, or a fresh one
+    (finetune.load_base false)."""
     import dataclasses
 
     from lerobot.configs import PreTrainedConfig
     from lerobot.policies.smolvla.configuration_smolvla import SmolVLAConfig
 
+    from openarm_smolvla.configuration_smolvla_rgbd import SmolVLARGBDConfig
+
     overrides = policy_overrides(cfg)
+    rgbd = rgbd_fields(cfg)
+    kind = SmolVLAConfig if rgbd is None else SmolVLARGBDConfig
+    overrides.update(rgbd or {})
     if not cfg.finetune.load_base:
-        return SmolVLAConfig(**overrides)
+        return kind(**overrides)
     base = str(cfg.model.base)
     revision = cfg.model.get("base_revision")
     config = PreTrainedConfig.from_pretrained(base, revision=revision)
     if not isinstance(config, SmolVLAConfig):
         raise ValueError(f"{base} is a {config.type} checkpoint, not SmolVLA")
-    config = dataclasses.replace(config, **overrides)
+    fields = {f.name: getattr(config, f.name) for f in dataclasses.fields(SmolVLAConfig) if f.init}
+    config = kind(**(fields | overrides))
     config.pretrained_path = base
     config.pretrained_revision = revision
     return config
@@ -147,6 +173,7 @@ def policy_metadata(cfg: DictConfig) -> dict:
         "finetune": str(cfg.finetune.name),
         "cameras": [str(c) for c in cfg.data.cameras],
         "delta_actions": bool(cfg.data.delta_actions),
+        "depth_as": str(cfg.data.get("depth_as") or "image"),  # channel: one RGB-D image, as ACT
         "default_prompt": default_prompt(cfg),
         # openarm_act refuses a camera that gives other frames than these.
         "image_size": dataset_image_size(cfg),

@@ -1,6 +1,7 @@
-# One OpenArm dataset: how the converter builds it and how training reads it.
+# The chest camera's RGB only. The base of the other data configs: one dataset,
+# how the converter builds it and how training reads it.
 # convert.py and train.py compose the same file, so they cannot disagree.
-name: openarm
+name: openarm_rgb
 manifest: manifests/episodes.yaml   # task / exclude / split per episode
 # Labels (see openarm_smolvla/episode.py): commands | next_qpos | qpos
 action_source: commands
@@ -14,9 +15,18 @@ image_size: null
 video: true                     # mp4 frames; false stores PNGs
 # The recorder's cameras SmolVLA sees, in this order.
 cameras: [chest]
+# How chest_depth reaches the model, when it is among the cameras:
+#   image    a second, gray image through SigLIP, as SmolVLA takes cameras
+#   channel  the RGB image's 4th channel: one RGB-D image (data=openarm_rgbd)
+depth_as: image
+depth_init: zero                # channel: the depth weights start at 0, or at the "mean" of RGB's
 # Arm joints as deltas from the state, grippers absolute. SmolVLA was
 # pretrained on absolute targets, so LeRobot's recipe keeps them absolute.
 delta_actions: false
 image_transforms: false         # LeRobot's train-time augmentation (colour jitter, small shifts)
 default_prompt: null            # null: the dataset's task, when it has only one
+# Held out for offline_eval.py besides the manifest's `split: val`, as
+# act_pipeline's val_split: this share of the episodes, picked by a hash.
+val_fraction: 0.0
+split_seed: 0
 tasks: null                     # filled in at training: the dataset's tasks, kept with every checkpoint

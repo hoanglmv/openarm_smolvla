@@ -4,7 +4,7 @@ defaults:
   - paths: default
   - model: smolvla
   - finetune: expert
-  - data: openarm
+  - data: openarm_rgbd
   - _self_
   - optional experiment: null
 

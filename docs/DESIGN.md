@@ -104,7 +104,7 @@ Vài lựa chọn khi dựng config:
 | SmolVLA nhận | Từ OpenArm | Ghi chú |
 |---|---|---|
 | `observation.images.chest` | `chest_rgb` | float [3,H,W] 0..1, model tự letterbox về 512×512 |
-| `observation.images.chest_depth` | depth (chỉ `data=openarm_rgbd`) | ảnh xám, mã hoá như ACT (5.4) |
+| depth | `data=openarm_rgbd` (mặc định): kênh thứ 4 của ảnh chest (5.6); `data=openarm_rgb_depth`: ảnh xám thứ hai (5.4) | mã hoá như ACT |
 | `observation.state` | `qpos` [16] | model pad lên 32 |
 | `action` | nhãn [50,16] | tuyệt đối (mặc định) hoặc delta (5.2) |
 | `task` | prompt từ manifest | SmolVLA thêm `\n` rồi tokenize, tối đa 48 token |
@@ -138,7 +138,7 @@ chế độ fine-tune trên cùng dữ liệu.
 
 ### 5.4 Depth
 
-SigLIP chỉ nhận RGB. `data=openarm_rgbd` thêm depth thành ảnh thứ hai,
+SigLIP chỉ nhận RGB. `data=openarm_rgb_depth` thêm depth thành ảnh thứ hai,
 mã hoá **đúng như ACT** (kẹp 0.2–1.2 m, scale 0..255, 3 kênh xám) bằng một
 hàm duy nhất (`images.depth_to_image`), dùng cả lúc convert lẫn lúc serve.
 SmolVLA nhận số camera tuỳ ý, nên không phải mượn slot cổ tay như π0.
@@ -148,6 +148,33 @@ SmolVLA nhận số camera tuỳ ý, nên không phải mượn slot cổ tay nh
 50 Hz, `chunk_size=50` (1 s) như ACT và π0. Prompt: manifest như
 openarm_pizero. Run lưu danh sách task của dataset; khi dataset chỉ có một
 task, server dùng nó làm prompt mặc định.
+
+### 5.6 Train giống ACT: `data=openarm_rgbd` (mặc định)
+
+Cùng input/output với ACT đang chạy (act_pipeline trong OpenArm_MC), kiến
+trúc SmolVLA:
+
+- **Ảnh RGB-D một khối 4 kênh.** ACT nới `conv1` của ResNet-18 thành 4 kênh
+  (`conv1_adapter`, được train, phần còn lại đóng băng). Ở đây làm đúng như
+  vậy với `patch_embedding` của SigLIP: Conv2d(3→768) thành Conv2d(4→768),
+  được train, phần còn lại của encoder đóng băng. Code nằm trong
+  `modeling_smolvla_rgbd.py` (policy type `smolvla_rgbd`, đăng ký vào
+  LeRobot). Khi nạp `smolvla_base` (3 kênh), kênh depth được thêm vào:
+  mặc định bằng 0, để đặc trưng ảnh lúc đầu giống hệt bản pretrained, còn
+  `data.depth_init=mean` khởi tạo giống ACT. Depth đi qua dataset như một
+  ảnh xám (`images.depth_to_image`, cùng phép kẹp 0.2–1.2 m), và được ghép
+  vào ảnh RGB ngay trong `prepare_images`, trước bước letterbox 512×512.
+- **Nhãn** `action_source: qpos`: `action[t:t+50]`, đúng cột `action` (=
+  qpos) mà ACT học, có padding và mask ở cuối episode như ACT.
+- **Validation** `val_fraction: 0.15`: 15% episode, chọn theo hash nên ổn
+  định khi thêm episode mới; `offline_eval.py` dùng đúng tập đó.
+- **Khác ACT** là phần bản chất của SmolVLA: flow matching thay cho CVAE
+  với loss L1, ảnh letterbox 512×512, và luôn có prompt (task trong
+  manifest, cố định).
+
+Depth được mã hoá 8 bit (bước ~4 mm trong khoảng 1 m) và nén video như ảnh
+RGB; ACT đọc depth thô từ HDF5. Nếu thấy depth có ích, thử `data.video=false`
+(PNG, không mất thông tin, tốn đĩa hơn nhiều).
 
 ## 6. Các chế độ fine-tune
 

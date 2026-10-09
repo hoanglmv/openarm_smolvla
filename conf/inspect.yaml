@@ -2,7 +2,7 @@
 #   uv run scripts/inspect_dataset.py paths.raw=/path/to/openarm_mc/dataset
 defaults:
   - paths: default
-  - data: openarm
+  - data: openarm_rgbd
   - _self_
 
 hydra:

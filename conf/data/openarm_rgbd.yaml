@@ -1,10 +1,18 @@
-# OpenArm with ACT's inputs: chest RGB and chest depth (+ qpos).
-# SmolVLA has no depth encoder, so depth goes in as a second, gray image,
-# scaled as ACT scales it (0.2..1.2 m -> 0..1). The base model has never seen
-# such an image: compare against data=openarm.
+# The default. One RGB-D chest image and qpos in, 50 future joint states out:
+#
+#   in   RGB with depth as a 4th channel (depth clipped to 0.2..1.2 m and
+#        scaled to 0..1), through SmolVLA's vision encoder widened to four
+#        channels (modeling_smolvla_rgbd.py); qpos [16]
+#   out  [50, 16] absolute joint states: action[t : t + 50], the recorder's
+#        `action` column (= qpos)
+#   15 % of the episodes held out for offline_eval.py
 defaults:
-  - openarm
+  - openarm_rgb
   - _self_
 
 name: openarm_rgbd
+action_source: qpos             # `commands` (teleop targets) is the experiment to compare
 cameras: [chest, chest_depth]
+depth_as: channel
+depth_init: zero                # "mean": the depth weights start at the mean of RGB's
+val_fraction: 0.15
